@@ -1,0 +1,17 @@
+[project]
+name = "maud-qwen"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "openai>=3.16.2",
+    "pandas>=3.0.6",
+    "python-dotenv>=1.2.3",
+]
+
+[project.optional-dependencies]
+eda = [
+    "datasketch>=2.0.0",
+    "matplotlib>=3.11.2",
+]
