@@ -1,3 +1,6 @@
+# Local datasets
+/data/
+
 # Python-generated files
 __pycache__/
 *.py[oc]
