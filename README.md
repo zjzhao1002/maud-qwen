@@ -1,136 +1,113 @@
-# MAUD × Qwen
+# MAUD Qwen Evaluation
 
-Evaluate Qwen on MAUD contract questions by supplying a text excerpt, question, and subquestion, then comparing the model's answer with the dataset answer. This project runs inference through DeepInfra; it does not fine-tune the model.
+Evaluate `Qwen/Qwen3.5-9B` on contract question-answering rows from the MAUD dataset using DeepInfra's OpenAI-compatible API. The script samples rows, asks the model to choose an allowed answer, and saves predictions with exact-match accuracy. It runs inference through a hosted API; it does not train a model locally.
 
-Predictions are constrained to the answer options observed in training for each `(question, subquestion)` pair. Results are saved to CSV and visualized by category and text type.
+## Dataset and paper
+
+It is recommended to download the official MAUD dataset, but I also provide a copy (`data.zip`) in this repository.
+
+- **Official Dataset Page:** [MAUD — The Atticus Project](https://www.atticusprojectai.org/maud/)
+- **Dataset Download:** [MAUD v1 on Zenodo](https://zenodo.org/records/7500064)
+- **Paper:** [MAUD: An Expert-Annotated Legal NLP Dataset for Merger Agreement Understanding](https://aclanthology.org/2023.emnlp-main.1019/) (EMNLP 2023)
+- **Official repository:** [The-Atticus-Project/maud](https://github.com/The-Atticus-Project/maud)
 
 ## Setup
 
-Use Python 3.13 or later and `uv`. Run commands from the repository root.
+Requires Python **3.13 or newer**, `uv`, and a DeepInfra API token.
 
-```bash
-uv sync --extra eda
+Run these commands from the project directory:
+
+```sh
+uv sync --locked
 ```
 
-The `eda` extra includes Matplotlib, which is needed for the results plots, and dependencies for the dataset analysis. For inference only, `uv sync` is sufficient.
-
-Create a `.env` file in the repository root with your DeepInfra token:
+Create a `.env` file containing your token, or set the environment variable in your shell:
 
 ```dotenv
-DEEPINFRA_TOKEN=your_token_here
+DEEPINFRA_TOKEN=your_deepinfra_api_token
 ```
 
-`.env` is excluded from Git. Inference requires network access and uses your DeepInfra account; plotting and dataset analysis run locally without API calls.
+If `data/` has not been extracted, unpack the included archive:
 
-## Dataset
+```sh
+unzip data.zip
+```
 
-MAUD (Merger Agreement Understanding Dataset) is curated by The Atticus Project.
-
-- **Official dataset page:** [MAUD — The Atticus Project](https://www.atticusprojectai.org/maud/)
-- **Dataset download:** [MAUD v1 on Zenodo](https://zenodo.org/records/7500064)
-- **Original code repository:** [The-Atticus-Project/maud](https://github.com/The-Atticus-Project/maud)
-- **Paper:** Steven H. Wang et al. (2023), [MAUD: An Expert-Annotated Legal NLP Dataset for Merger Agreement Understanding](https://arxiv.org/abs/2301.00876).
-
-The inference script reads the prepared split files directly:
+The evaluator expects these files beside `main.py`:
 
 ```text
 data/
 ├── MAUD_train.csv
 ├── MAUD_dev.csv
-├── MAUD_test.csv
-├── raw/
-└── contracts/
+└── MAUD_test.csv
 ```
 
-Select abridged examples using `--type abridged`; no separate cleaning step is required. The script filters the chosen split on `data_type` and preserves literal strings such as `None` when loading CSVs.
+Input CSVs must contain `contract_name`, `text`, `question`, `subquestion`, `text_type`, `category`, `answer`, and `data_type`. The training CSV is required even when evaluating development or test data because it supplies the allowed answers.
 
-## Run Qwen
+## Run an evaluation
 
-Start with five random abridged training examples:
+The default run samples five `abridged` training rows with seed `42`:
 
-```bash
-uv run python main.py
+```sh
+uv run main.py
 ```
 
-Run 100 examples with reproducible row selection:
+To evaluate a larger test sample and save it separately:
 
-```bash
-uv run python main.py --split train --type abridged --limit 100 --seed 42
+```sh
+uv run main.py --split test --type abridged --limit 100 --seed 42 --output results/test_abridged.csv
 ```
 
-Evaluate a dev sample and save it separately:
-
-```bash
-uv run python main.py --split dev --type abridged --limit 100 --seed 42 --output results/qwen_dev_predictions.csv
-```
-
-| Argument | Default | Description |
-|---|---|---|
+| Option | Default | Description |
+| --- | --- | --- |
 | `--split` | `train` | Dataset split: `train`, `dev`, or `test`. |
-| `--type` | `abridged` | Source subset: `main`, `abridged`, or `rare_answers`. The selected split must contain that subset. |
-| `--limit` | `5` | Positive number of rows to sample; capped at the available subset size. |
-| `--seed` | `42` | Seed for random sampling without replacement. |
-| `--output` | `results/qwen_predictions.csv` | CSV destination, relative to the working directory unless absolute. Overwritten each run. |
+| `--type` | `abridged` | Filter by `data_type`: `main`, `abridged`, or `rare_answers`. |
+| `--limit` | `5` | Positive number of rows to sample, capped at the available row count. |
+| `--seed` | `42` | Random seed for row sampling. |
+| `--output` | `results/qwen_predictions.csv` | CSV destination, overwritten on each run. |
 
-The current configuration in [main.py](main.py) uses `Qwen/Qwen3.5-9B`, `temperature=0`, `reasoning_effort="none"`, and a maximum of 2,048 output tokens. The request asks the provider to disable reasoning; the script does not record reasoning usage to verify this. Model and generation settings are configured in the code, not command-line arguments.
+Use `uv run main.py --help` for CLI help. Data paths are relative to the script directory; relative output paths are resolved from the working directory.
 
-The full training split supplies the allowed answer vocabulary, even when evaluating dev or test. A JSON Schema enum constrains each answer, and the response is validated before saving. The prompt does not include the current row's expected answer. Constraining the output ensures a valid choice, not a correct prediction.
+## Evaluation behavior
 
-The seed controls sample selection. Temperature zero reduces sampling randomness but does not guarantee identical hosted-model responses across runs.
+- Allowed answers are the sorted unique training answers for each `(question, subquestion)` pair, collected across all training data types.
+- Each sampled row makes one sequential API request containing its contract text, question, subquestion, and allowed answers.
+- Requests use temperature `0`, `reasoning_effort="none"`, a maximum of `2048` output tokens, and a strict JSON schema for the answer. The model and request settings are defined in `run_qwen()` in `main.py`.
+- Predictions count as correct only when they exactly equal the dataset answer. The terminal displays each result and the final sample accuracy.
 
-## Prediction output
+The seed controls row selection; it does not guarantee identical hosted-model responses. Reported accuracy describes the selected sample, which is only five rows by default.
 
-The CSV contains these columns, in order:
+## Output and failures
+
+The output CSV contains:
 
 ```text
 contract_name,text,question,subquestion,text_type,category,prediction,expected,matched
 ```
 
-`matched` is `True` when `prediction == expected`, using exact string equality. The script prints each result and the overall accuracy when the run completes.
+Parent directories are created automatically. Each completed prediction is flushed to disk, so completed rows remain available if a later request fails. Runs do not resume or append: choose a new `--output` path to preserve an earlier result.
 
-Each completed prediction is flushed to disk, so earlier results remain if a later request fails. Requests use a 60-second timeout with automatic retries disabled. A failed request or invalid response stops the run; there is no automatic resume, and rerunning to the same output path overwrites the partial CSV.
+The client uses a 60-second timeout and disables automatic retries. API failures, incomplete responses, empty content, or invalid answers stop the run. If startup fails, check that `DEEPINFRA_TOKEN` is set, the required CSVs exist, and the selected split contains rows of the requested type.
 
-## Plot results
+## Optional plots
 
-Generate all six plots from the default predictions file:
+If your working copy includes `results/plot.py`, generate charts from a predictions CSV with:
 
-```bash
-uv run --extra eda python results/plot.py
+```sh
+uv run results/plot.py --input results/test_abridged.csv
 ```
 
-Use another predictions file:
+The script writes six PNGs beside itself: accuracy by category and text type, plus category and text-type shares among matched and mismatched predictions. It recomputes matches from `prediction` and `expected`.
 
-```bash
-uv run --extra eda python results/plot.py --input results/qwen_dev_predictions.csv
-```
-
-Plots are always saved under `results/` with fixed filenames. There is no `--output` option for plotting, and each run overwrites the existing figures.
-
-| File | Meaning |
-|---|---|
-| `category_accuracy.png` | Exact-match accuracy within each category. |
-| `text_type_accuracy.png` | Exact-match accuracy within each text type. |
-| `matched_category_pie.png` | Each category's share of all correct predictions. |
-| `mismatched_category_pie.png` | Each category's share of all incorrect predictions. |
-| `matched_text_type_pie.png` | Each text type's share of all correct predictions. |
-| `mismatched_text_type_pie.png` | Each text type's share of all incorrect predictions. |
-
-The plotting script recomputes matches from `prediction` and `expected`. Accuracy plots divide correct rows by all rows in that group; pie charts divide group counts by all matched or all mismatched rows. These are different quantities. Counts accompany percentages, and colors are consistent across each matched/mismatched pie pair.
-
-## Current analysis
-
-The recorded 100-row, seed-42 abridged training sample achieved **49/100 exact matches (49%)**, spanning 60 contracts, 7 categories, and 17 text types. Conditions to Closing accounted for 25 of the 51 errors.
-
-See the [analysis report](results/analysis_report.md) for detailed tables, figures, methodology, and limitations. This is a snapshot of the recorded run; it is not automatically updated by the scripts.
-
-The earlier first-100-row sample contained only consideration-type questions. Random sampling provides broader task coverage, but it does not balance tasks. Small groups, related examples from the same contract, and strict scoring of compound answer labels limit the conclusions that can be drawn from a single small sample. Training-split inference is useful for initial checks; after tuning prompts on these examples, use separate dev examples to assess changes and reserve test data for final evaluation.
-
-## Project files
+## Project layout
 
 | Path | Purpose |
-|---|---|
-| [main.py](main.py) | Sample data, call Qwen, validate answers, and save predictions. |
-| [results/plot.py](results/plot.py) | Generate accuracy charts and outcome-composition pie charts. |
-| [results/analysis_report.md](results/analysis_report.md) | Written analysis of the recorded sample. |
-| `data/` | Prepared splits, raw annotations, and contract text. |
-| [pyproject.toml](pyproject.toml) / [uv.lock](uv.lock) | Dependency configuration and lockfile. |
+| --- | --- |
+| `main.py` | Dataset loading, sampling, API requests, and CSV evaluation output. |
+| `pyproject.toml` | Python requirement and dependencies. |
+| `uv.lock` | Locked dependency versions. |
+| `data.zip` | Dataset archive. |
+| `data/` | Extracted split CSVs, raw data, and contract text. |
+| `results/` | Prediction CSVs and optional local analysis files. |
+
+`.env`, `.venv`, `data/`, and `results/` are ignored by Git. The optional plotting script and existing reports under `results/` therefore may not be present in a fresh checkout.

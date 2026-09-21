@@ -13,7 +13,5 @@ wheels/
 .venv
 .env
 
-# Project Outputs
-EDA/
+# Project Specific
 results/
-
