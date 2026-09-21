@@ -89,16 +89,6 @@ Parent directories are created automatically. Each completed prediction is flush
 
 The client uses a 60-second timeout and disables automatic retries. API failures, incomplete responses, empty content, or invalid answers stop the run. If startup fails, check that `DEEPINFRA_TOKEN` is set, the required CSVs exist, and the selected split contains rows of the requested type.
 
-## Optional plots
-
-If your working copy includes `results/plot.py`, generate charts from a predictions CSV with:
-
-```sh
-uv run results/plot.py --input results/test_abridged.csv
-```
-
-The script writes six PNGs beside itself: accuracy by category and text type, plus category and text-type shares among matched and mismatched predictions. It recomputes matches from `prediction` and `expected`.
-
 ## Project layout
 
 | Path | Purpose |
